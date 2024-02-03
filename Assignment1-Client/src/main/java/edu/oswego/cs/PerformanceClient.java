@@ -71,6 +71,7 @@ public class PerformanceClient {
          boolean isIterationValid = numOfIterationsBeforeKey == iterationValidation;
          boolean isKeyValid = isSeedValid & isIterationValid;
          System.out.println("Key is valid: " + isKeyValid);
+         random.setSeed(seed);
          // Ensures having the seed isn't enough to find the key
          for (int i = 0; i < numOfIterationsBeforeKey; i++) {
             random.nextLong();
