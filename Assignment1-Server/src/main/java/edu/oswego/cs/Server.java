@@ -125,7 +125,7 @@ public class Server {
    }
 
    public static void validateMessage(String message, String expectedMessage) {
-      if (message == expectedMessage) {
+      if (message.equals(expectedMessage)) {
          System.out.println("Message is valid.");
       } else {
          System.out.println("Message is invalid.");
