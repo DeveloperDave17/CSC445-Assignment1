@@ -2,6 +2,7 @@ package edu.oswego.cs;
 
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -55,12 +56,12 @@ public class Server {
    }
 
    public static long generateXorKey(PrintWriter out, BufferedReader in) {
-      ThreadLocalRandom random = ThreadLocalRandom.current();
+      Random random = new Random();
       try {
          long seed = Long.parseLong(in.readLine());
          out.println(seed);
          int numIterations = Integer.parseInt(in.readLine());
-         out.print(numIterations);
+         out.println(numIterations);
          random.setSeed(seed);
          for (int i = 0; i < numIterations; i++) {
             random.nextLong();

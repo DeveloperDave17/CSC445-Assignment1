@@ -18,8 +18,8 @@ public class PerformanceClient {
       if (args.length > 0) {
          host = args[0];
       } else {
-         // A school server
-         host = "gee.cs.oswego.edu";
+         // A school server gee.cs.oswego.edu
+         host = "127.0.0.1";
       }
 
       int portNumber;
@@ -59,7 +59,7 @@ public class PerformanceClient {
    }
 
    public static long generateXorKey(PrintWriter out, BufferedReader in) {
-      ThreadLocalRandom random = ThreadLocalRandom.current();
+      Random random = new Random();
       try {
          long seed = random.nextLong();
          out.println(seed);
