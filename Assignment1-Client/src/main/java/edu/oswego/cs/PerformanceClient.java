@@ -54,7 +54,7 @@ public class PerformanceClient {
       String logFilePath = "log.txt";
       FileWriter logFileWriter = createLogFileWriter(logFilePath);
       long xorKey = generateXorKey(out, in);
-      measureRTTWithTCPMessages(logFileWriter, out, in, xorKey);
+      xorKey = measureRTTWithTCPMessages(logFileWriter, out, in, xorKey);
       closeResources(socket, out, in, logFileWriter);
    }
 
@@ -84,68 +84,71 @@ public class PerformanceClient {
       return random.nextLong();
    }
 
-   public static void measureRTTWithTCPMessages(FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
-      int message1ByteSize = 8;
-      measureRTTWithTCP(message1ByteSize, logFileWriter, out, in, xorKey);
-      int message2ByteSize = 32;
-      measureRTTWithTCP(message2ByteSize, logFileWriter, out, in, xorKey);
-      int message3ByteSize = 512;
-      measureRTTWithTCP(message3ByteSize, logFileWriter, out, in, xorKey);
-      int message4ByteSize = 1024;
-      measureRTTWithTCP(message4ByteSize, logFileWriter, out, in, xorKey);
+   public static long measureRTTWithTCPMessages(FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
+      String message1 = "hey!";
+      log("RTT to send " + message1 + ":", logFileWriter);
+      xorKey = measureRTTWithTCP(message1, logFileWriter, out, in, xorKey);
+      String message2 = "This is a secret message: 123412";
+      log("RTT to send " + message2 + ":", logFileWriter);
+      xorKey = measureRTTWithTCP(message2, logFileWriter, out, in, xorKey);
+      String message3 = "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456";
+      log("RTT to send " + message3 + ":", logFileWriter);
+      xorKey = measureRTTWithTCP(message3, logFileWriter, out, in, xorKey);
+      return xorKey;
    }
 
-   public static void measureRTTWithTCP(int messageSize, FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
-      ThreadLocalRandom random = ThreadLocalRandom.current();
-      byte[] message = new byte[messageSize];
-      random.nextBytes(message);
+   public static long measureRTTWithTCP(String message, FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
       // encode message
-      xorWithKey(message, xorKey);
+      message = xorWithKey(message, xorKey);
       try {
          long start = System.nanoTime();
          out.println(message);
          // retrieve original message
-         xorWithKey(message, xorKey);
-         byte[] response = in.readLine().getBytes();
+         message = xorWithKey(message, xorKey);
+         String response = in.readLine();
+         // advance key
+         xorKey = xorShift(xorKey);
          // decode received message
-         xorWithKey(response, xorKey);
+         response = xorWithKey(response, xorKey);
          validateResponse(message, response);
          long timeElapsed = System.nanoTime() - start;
-         log("Payload Byte Size: " + messageSize, logFileWriter);
-         log("Time Elapsed: " + timeElapsed, logFileWriter);
+         log("" + timeElapsed, logFileWriter);
+         // advance key for next message
+         xorKey = xorShift(xorKey);
       } catch (IOException e) {
          System.err.println("I/O error during measurement of RTT with TCP");
          e.printStackTrace();
          System.exit(1);
       }
+      return xorKey;
    }
 
-   public static void xorWithKey(byte[] message, long xorKey) {
-      int messageLength = message.length;
+   // Updates the rng of the key for each step
+   public static long xorShift(long key) {
+      key ^= key << 13;
+      key ^= key >>> 7;
+      key ^= key << 17;
+      return key;
+   }
+
+   public static String xorWithKey(String message, long xorKey) {
+      byte[] messageBytes = message.getBytes();
+      int messageLength = messageBytes.length;
       int numBytesInLong = 8;
       byte[] xorKeyBytes = new byte[numBytesInLong];
       int currentKeyIndex = 0;
       for (int i = 0; i < messageLength; i++) {
-         message[i] ^= xorKeyBytes[currentKeyIndex];
+         messageBytes[i] ^= xorKeyBytes[currentKeyIndex];
          currentKeyIndex++;
          if (currentKeyIndex == numBytesInLong) {
             currentKeyIndex = 0;
          }
       }
+      return new String(messageBytes);
    }
 
-   public static boolean validateResponse(byte[] message, byte[] response) {
-      if (message.length == response.length) {
-         int messageLength = message.length;
-         for (int i = 0; i < messageLength; i++) {
-            if (message[i] != response[i]) {
-               return false;
-            }
-         }
-      } else {
-         return false;
-      }
-      return true;
+   public static boolean validateResponse(String message, String response) {
+      return message.equals(response);
    }
 
    public static void log(String logMessage, FileWriter logFileWriter) {
