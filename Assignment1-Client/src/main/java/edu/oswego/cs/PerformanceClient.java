@@ -224,7 +224,7 @@ public class PerformanceClient {
       int dataSize = numMessages * messageSize;
       long statusOkay = 200;
       log("Throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
-      for (int sample = 1; sample < sampleSize; sample++) {
+      for (int sample = 1; sample <= sampleSize; sample++) {
          try {
             long[] data = generateData(dataSize);
             long startTime = System.nanoTime();
