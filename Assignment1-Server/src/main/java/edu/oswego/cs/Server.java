@@ -42,6 +42,7 @@ public class Server {
       long xorKey = generateXorKey(out, in);
       int sampleSize = 30;
       xorKey = handleRTTWithTCPMessages(out, in, xorKey, sampleSize);
+      xorKey = handleThroughputForTCPMessageTests(out, in, xorKey, sampleSize);
       closeResources(serverSocket, client, out, in);
    }
 
@@ -137,6 +138,13 @@ public class Server {
       return true;
    }
 
+   public static boolean validateMessageWithGeneratedTriangularNumbers(long[] message, int startIndex) {
+      for (int i = 0; i < message.length; i++) {
+         if (message[i] != generateTriangularNumber(startIndex + i)) return false;
+      }
+      return true;
+   }
+
    public static long generateTriangularNumber(long num) {
       return (num * (num + 1)) >>> 2;
    }
@@ -149,5 +157,48 @@ public class Server {
          message[i] = generateTriangularNumber(i);
       }
       return message;
+   }
+
+   public static long handleThroughputForTCPMessages(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+      long okayStatusCode = 200;
+      int numLongs = messageSize / Long.BYTES;
+      for (int sampleNum = 1; sampleNum <= sampleSize; sampleNum++) {
+         try {
+            for (int messageNum = 1; messageNum <= numMessages; messageNum++) {
+               long[] message = new long[numLongs];
+               for (int i = 0; i < numLongs; i++) {
+                  message[i] = in.readLong();
+               }
+               xorWithKey(message, xorKey);
+               int startIndex = (messageNum - 1) * numLongs;
+               System.out.println(validateMessageWithGeneratedTriangularNumbers(message, startIndex));
+               // advance key
+               xorKey = xorShift(xorKey);
+               // send acknowledgment
+               out.writeLong(okayStatusCode);
+               out.flush();
+            }
+         } catch (IOException e) {
+            System.err.println("There was an I/O exception thrown when handling throughput tcps messages.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+      return xorKey;
+   }
+
+   public static long handleThroughputForTCPMessageTests(DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+      int numMessagesForTest1 = 16384;
+      int messageSizeForTest1 = 64;
+      xorKey = handleThroughputForTCPMessages(numMessagesForTest1, messageSizeForTest1, out, in, xorKey, sampleSize);
+
+      int numMessagesForTest2 = 4096;
+      int messageSizeForTest2 = 256;
+      xorKey = handleThroughputForTCPMessages(numMessagesForTest2, messageSizeForTest2, out, in, xorKey, sampleSize);
+
+      int numMessagesForTest3 = 1024;
+      int messageSizeForTest3 = 1024;
+      xorKey = handleThroughputForTCPMessages(numMessagesForTest3, messageSizeForTest3, out, in, xorKey, sampleSize);
+      return xorKey;
    }
 }
