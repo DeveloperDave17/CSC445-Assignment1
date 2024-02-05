@@ -240,6 +240,8 @@ public class PerformanceClient {
                byteBuffer.get(encodedMessage);
                out.write(encodedMessage);
                out.flush();
+               // advance key
+               xorKey = xorShift(xorKey);
                long status = in.readLong();
                if (status != statusOkay) System.out.println("There was an issue with the ack.");
             }
