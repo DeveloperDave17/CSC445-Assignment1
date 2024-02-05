@@ -6,8 +6,12 @@ import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.PrintWriter;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
 import java.net.Socket;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -31,16 +35,14 @@ public class PerformanceClient {
       }
 
       Socket socket = null;
-      PrintWriter out = null;
-      BufferedReader in = null;
+      DataOutputStream out = null;
+      DataInputStream in = null;
 
       try {
          socket = new Socket(host, portNumber);
          // Set print writer to autoflush
-         out = new PrintWriter(socket.getOutputStream(), true);
-         in = new BufferedReader(new InputStreamReader(
-            socket.getInputStream()
-            ));
+         out = new DataOutputStream(socket.getOutputStream());
+         in = new DataInputStream(socket.getInputStream());
       } catch (UnknownHostException e) {
          System.err.println("Could not find host: " + host);
          e.printStackTrace();
@@ -54,19 +56,22 @@ public class PerformanceClient {
       String logFilePath = "log.txt";
       FileWriter logFileWriter = createLogFileWriter(logFilePath);
       long xorKey = generateXorKey(out, in);
-      xorKey = measureRTTWithTCPMessages(logFileWriter, out, in, xorKey);
+      int sampleSize = 30;
+      xorKey = measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
       closeResources(socket, out, in, logFileWriter);
    }
 
-   public static long generateXorKey(PrintWriter out, BufferedReader in) {
+   public static long generateXorKey(DataOutputStream out, DataInputStream in) {
       Random random = new Random();
       try {
          long seed = random.nextLong();
-         out.println(seed);
-         long responseSeed = Long.parseLong(in.readLine());
+         out.writeLong(seed);
+         out.flush();
+         long responseSeed = in.readLong();
          int numOfIterationsBeforeKey = 5;
-         out.println(numOfIterationsBeforeKey);
-         int iterationValidation = Integer.parseInt(in.readLine());
+         out.writeInt(numOfIterationsBeforeKey);
+         out.flush();
+         int iterationValidation = in.readInt();
          boolean isSeedValid = seed == responseSeed;
          boolean isIterationValid = numOfIterationsBeforeKey == iterationValidation;
          boolean isKeyValid = isSeedValid & isIterationValid;
@@ -84,41 +89,50 @@ public class PerformanceClient {
       return random.nextLong();
    }
 
-   public static long measureRTTWithTCPMessages(FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
-      String message1 = "hey!";
-      log("RTT to send " + message1 + ":", logFileWriter);
-      xorKey = measureRTTWithTCP(message1, logFileWriter, out, in, xorKey);
-      String message2 = "This is a secret message: 123412";
-      log("RTT to send " + message2 + ":", logFileWriter);
-      xorKey = measureRTTWithTCP(message2, logFileWriter, out, in, xorKey);
-      String message3 = "1234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456";
-      log("RTT to send " + message3 + ":", logFileWriter);
-      xorKey = measureRTTWithTCP(message3, logFileWriter, out, in, xorKey);
+   public static long measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+      int message1Size = 8;
+      log("RTT to send " + message1Size + " Bytes:", logFileWriter);
+      xorKey = measureRTTWithTCP(message1Size, logFileWriter, out, in, xorKey, sampleSize);
+      int message2Size = 64;
+      log("RTT to send " + message2Size + " Bytes:", logFileWriter);
+      xorKey = measureRTTWithTCP(message2Size, logFileWriter, out, in, xorKey, sampleSize);
+      int message3Size = 512;
+      log("RTT to send " + message3Size + " Bytes:", logFileWriter);
+      xorKey = measureRTTWithTCP(message3Size, logFileWriter, out, in, xorKey, sampleSize);
       return xorKey;
    }
 
-   public static long measureRTTWithTCP(String message, FileWriter logFileWriter, PrintWriter out, BufferedReader in, long xorKey) {
-      // encode message
-      message = xorWithKey(message, xorKey);
-      try {
-         long start = System.nanoTime();
-         out.println(message);
-         // retrieve original message
-         message = xorWithKey(message, xorKey);
-         String response = in.readLine();
-         // advance key
-         xorKey = xorShift(xorKey);
-         // decode received message
-         response = xorWithKey(response, xorKey);
-         validateResponse(message, response);
-         long timeElapsed = System.nanoTime() - start;
-         log("" + timeElapsed, logFileWriter);
-         // advance key for next message
-         xorKey = xorShift(xorKey);
-      } catch (IOException e) {
-         System.err.println("I/O error during measurement of RTT with TCP");
-         e.printStackTrace();
-         System.exit(1);
+   public static long measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+      for (int sample = 1; sample <= sampleSize; sample++) {
+         long[] message = generateMessage(messageSize);
+         // encode message
+         xorWithKey(message, xorKey);
+         try {
+            ByteBuffer byteBuffer = ByteBuffer.allocate(message.length * Long.BYTES);
+            byteBuffer.asLongBuffer().put(message);
+            long start = System.nanoTime();
+            out.write(byteBuffer.array());
+            out.flush();
+            // decode original message
+            xorWithKey(message, xorKey);
+            long[] response = new long[message.length];
+            for (int i = 0; i < message.length; i++) {
+               response[i] = in.readLong();
+            }
+            // advance key
+            xorKey = xorShift(xorKey);
+            // decode received message
+            xorWithKey(response, xorKey);
+            System.out.println(validateResponse(message, response));
+            long timeElapsed = System.nanoTime() - start;
+            log("" + timeElapsed, logFileWriter);
+            // advance key for next message
+            xorKey = xorShift(xorKey);
+         } catch (IOException e) {
+            System.err.println("I/O error during measurement of RTT with TCP");
+            e.printStackTrace();
+            System.exit(1);
+         }
       }
       return xorKey;
    }
@@ -131,24 +145,18 @@ public class PerformanceClient {
       return key;
    }
 
-   public static String xorWithKey(String message, long xorKey) {
-      byte[] messageBytes = message.getBytes();
-      int messageLength = messageBytes.length;
-      int numBytesInLong = 8;
-      byte[] xorKeyBytes = new byte[numBytesInLong];
-      int currentKeyIndex = 0;
+   public static void xorWithKey(long[] message, long xorKey) {
+      int messageLength = message.length;
       for (int i = 0; i < messageLength; i++) {
-         messageBytes[i] ^= xorKeyBytes[currentKeyIndex];
-         currentKeyIndex++;
-         if (currentKeyIndex == numBytesInLong) {
-            currentKeyIndex = 0;
-         }
+         message[i] ^= xorKey;
       }
-      return new String(messageBytes);
    }
 
-   public static boolean validateResponse(String message, String response) {
-      return message.equals(response);
+   public static boolean validateResponse(long[] message, long[] response) {
+      for (int i = 0; i < message.length; i++) {
+         if (message[i] != response[i]) return false;
+      }
+      return true;
    }
 
    public static void log(String logMessage, FileWriter logFileWriter) {
@@ -177,7 +185,7 @@ public class PerformanceClient {
       return logFileWriter;
    }
 
-   public static void closeResources(Socket socket, PrintWriter out, BufferedReader in, FileWriter logFileWriter) {
+   public static void closeResources(Socket socket, DataOutputStream out, DataInputStream in, FileWriter logFileWriter) {
       try {
          logFileWriter.close();
          in.close();
@@ -188,5 +196,19 @@ public class PerformanceClient {
          e.printStackTrace();
          System.exit(1);
       }
+   }
+
+   public static long generateTriangularNumber(long num) {
+      return (num * (num + 1)) >>> 2;
+   }
+
+   public static long[] generateMessage(int size) {
+      int numLongs = size / Long.BYTES;
+      if (size % Long.BYTES > 0) numLongs++;
+      long[] message = new long[numLongs];
+      for (int i = 0; i < numLongs; i++) {
+         message[i] = generateTriangularNumber(i);
+      }
+      return message;
    }
 }
