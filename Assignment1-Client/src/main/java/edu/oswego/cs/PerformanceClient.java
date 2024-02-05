@@ -58,6 +58,7 @@ public class PerformanceClient {
       long xorKey = generateXorKey(out, in);
       int sampleSize = 30;
       xorKey = measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
+      xorKey = measureThroughputForTCPTests(out, in, logFileWriter, sampleSize, xorKey);
       closeResources(socket, out, in, logFileWriter);
    }
 
@@ -104,7 +105,7 @@ public class PerformanceClient {
 
    public static long measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
       for (int sample = 1; sample <= sampleSize; sample++) {
-         long[] message = generateMessage(messageSize);
+         long[] message = generateData(messageSize);
          // encode message
          xorWithKey(message, xorKey);
          try {
@@ -147,8 +148,13 @@ public class PerformanceClient {
 
    public static void xorWithKey(long[] message, long xorKey) {
       int messageLength = message.length;
-      for (int i = 0; i < messageLength; i++) {
-         message[i] ^= xorKey;
+      xorWithKeyAndBounds(message, xorKey, 0, messageLength);
+   }
+
+   // Exclusive end
+   public static void xorWithKeyAndBounds(long[] data, long xorKey, int start, int end) {
+      for (int i = start; i < end; i++) {
+         data[i] ^= xorKey;
       }
    }
 
@@ -202,7 +208,7 @@ public class PerformanceClient {
       return (num * (num + 1)) >>> 2;
    }
 
-   public static long[] generateMessage(int size) {
+   public static long[] generateData(int size) {
       int numLongs = size / Long.BYTES;
       if (size % Long.BYTES > 0) numLongs++;
       long[] message = new long[numLongs];
@@ -210,5 +216,60 @@ public class PerformanceClient {
          message[i] = generateTriangularNumber(i);
       }
       return message;
+   }
+
+   public static long measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
+      int numLongsInMessage = messageSize / Long.BYTES;
+      ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
+      int dataSize = numMessages * messageSize;
+      long statusOkay = 200;
+      log("Throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
+      for (int sample = 1; sample < sampleSize; sample++) {
+         try {
+            long[] data = generateData(dataSize);
+            long startTime = System.nanoTime();
+            for (int messageNum = 1; messageNum <= numMessages; messageNum++) {
+               int startIndex = (messageNum - 1) * numLongsInMessage;
+               int endIndex = messageNum * numLongsInMessage;
+               // encode the message
+               xorWithKeyAndBounds(data, xorKey, startIndex, endIndex);
+               byteBuffer.rewind();
+               byteBuffer.asLongBuffer().put(data, startIndex, numLongsInMessage);
+               byteBuffer.rewind();
+               byte[] encodedMessage = new byte[messageSize];
+               byteBuffer.get(encodedMessage);
+               out.write(encodedMessage);
+               out.flush();
+               long status = in.readLong();
+               if (status != statusOkay) System.out.println("There was an issue with the ack.");
+            }
+            long nanoTime = System.nanoTime() - startTime;
+            double nanoSecondsInSeconds = Math.pow(10, 6);
+            double seconds = nanoTime / nanoSecondsInSeconds;
+            double throughputBytesPerSecond = dataSize / seconds; 
+            double throughputBitsPerSecond = throughputBytesPerSecond * Byte.SIZE;
+            log(String.format("%.4f", throughputBitsPerSecond), logFileWriter);
+         } catch (IOException e) {
+            System.err.println("There was an I/O exception thrown when trying to send a message during throughput measurement.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+      return xorKey;
+   }
+
+   public static long measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
+      int numMessagesForTest1 = 16384;
+      int messageSizeForTest1 = 64;
+      xorKey = measureThroughputForTCP(numMessagesForTest1, messageSizeForTest1, out, in, logFileWriter, sampleSize, xorKey);
+
+      int numMessagesForTest2 = 4096;
+      int messageSizeForTest2 = 256;
+      xorKey = measureThroughputForTCP(numMessagesForTest2, messageSizeForTest2, out, in, logFileWriter, sampleSize, xorKey);
+
+      int numMessagesForTest3 = 1024;
+      int messageSizeForTest3 = 1024;
+      xorKey = measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, sampleSize, xorKey);
+      return xorKey;
    }
 }
