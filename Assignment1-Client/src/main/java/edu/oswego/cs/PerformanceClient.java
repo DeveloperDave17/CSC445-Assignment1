@@ -62,6 +62,13 @@ public class PerformanceClient {
       closeResources(socket, out, in, logFileWriter);
    }
 
+   /**
+    * Generates the intial xorKey by first generating a seed, then sending the seed to the other device.
+    * The seed is then used to generate the key.
+    * @param out The data output stream of the server that the client is connected to.
+    * @param in The data input stream of the server that the client is connected to.
+    * @return The generated xorKey.
+    */
    public static long generateXorKey(DataOutputStream out, DataInputStream in) {
       Random random = new Random();
       try {
@@ -90,6 +97,15 @@ public class PerformanceClient {
       return random.nextLong();
    }
 
+   /**
+    * This method encapsulets all of the RTT TCP tests required for the project including message sizes of 8, 64, and 512 bytes.
+    * @param logFileWriter The file writer that is used for logging application information.
+    * @param out The output data stream of the server the client is connected to.
+    * @param in The input data stream of the server the client is connected to.
+    * @param xorKey The xor key used to encrypt and decrypt the data.
+    * @param sampleSize The sample size to be used for each test.
+    * @return
+    */
    public static long measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
       int message1Size = 8;
       log("RTT to send " + message1Size + " Bytes:", logFileWriter);
@@ -103,6 +119,18 @@ public class PerformanceClient {
       return xorKey;
    }
 
+   /**
+    * This method measures round trip latency while utilizing TCP. This method was written with the intention to handle various message sizes
+    * by generating the message data within the method. The data is then encrypted and loaded into a byte array before a timer is started. Once a timer
+    * is started the message is sent off. The message is then retrieved from the server and validated. Finally the timer is stopped and the time is logged.
+    * @param messageSize Specifies the message size in bytes to be sent to the server.
+    * @param logFileWriter The file writer which will be used to log test information.
+    * @param out The output data stream of the server that the client is connected to.
+    * @param in The input data stream of the server that the client is connected to.
+    * @param xorKey The xor key to be used for encrypting and decrypting the message.
+    * @param sampleSize Specifies the amount of samples to be collected before the method is exited.
+    * @return The xor key for future use.
+    */
    public static long measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
       for (int sample = 1; sample <= sampleSize; sample++) {
          long[] message = generateData(messageSize);
@@ -158,6 +186,12 @@ public class PerformanceClient {
       }
    }
 
+   /**
+    * Checks to see if two messages contain the same information.
+    * @param message The first message
+    * @param response The second message
+    * @return Either true if the messages contain the same info or false if they do not.
+    */
    public static boolean validateResponse(long[] message, long[] response) {
       for (int i = 0; i < message.length; i++) {
          if (message[i] != response[i]) return false;
@@ -165,6 +199,11 @@ public class PerformanceClient {
       return true;
    }
 
+   /**
+    * Logs information to a file and prints to the console. This method also handles I/O errors with the file writer if they arise.
+    * @param logMessage The message to be logged.
+    * @param logFileWriter The file writer that will record the message.
+    */
    public static void log(String logMessage, FileWriter logFileWriter) {
       System.out.println(logMessage);
       try {
@@ -176,6 +215,11 @@ public class PerformanceClient {
       }
    }
 
+   /**
+    * Creates a file writer with append enabled using the specified path.
+    * @param logFilePath Path to a file that exists or want to be created.
+    * @return The created file writer
+    */
    public static FileWriter createLogFileWriter(String logFilePath) {
       FileWriter logFileWriter = null;
       try {
@@ -190,7 +234,7 @@ public class PerformanceClient {
       }
       return logFileWriter;
    }
-
+   
    public static void closeResources(Socket socket, DataOutputStream out, DataInputStream in, FileWriter logFileWriter) {
       try {
          logFileWriter.close();
@@ -208,6 +252,11 @@ public class PerformanceClient {
       return (num * (num + 1)) >>> 2;
    }
 
+   /**
+    * Calls the generateTriangularNumber function to fill an array of longs that has a byte footprint of the specified size.
+    * @param size The amount of bytes the generated data will encompass.
+    * @return The generated long array filled with triangular numbers and consisting of size bytes.
+    */
    public static long[] generateData(int size) {
       int numLongs = size / Long.BYTES;
       if (size % Long.BYTES > 0) numLongs++;
@@ -218,6 +267,17 @@ public class PerformanceClient {
       return message;
    }
 
+   /**
+    * Measures the throughput for a specified number of messages that consist of a specified size and logs the collected throughput for a specified sample size. 
+    * @param numMessages The number of messages to be sent and ACKed.
+    * @param messageSize The size of each message.
+    * @param out The data output stream that is connected to the server.
+    * @param in The data input stream that is connected to the server.
+    * @param logFileWriter The file writer that logs the throughput and test information.
+    * @param sampleSize The number of samples to be collected before the function exits.
+    * @param xorKey The xor key to be used for encrypting and decrypting messages.
+    * @return The xor key for future use.
+    */
    public static long measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
       int numLongsInMessage = messageSize / Long.BYTES;
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
@@ -260,6 +320,15 @@ public class PerformanceClient {
       return xorKey;
    }
 
+   /**
+    * A Method that encapsulates the throughput tests for tcp communication. 
+    * @param out The data output stream connected to the server.
+    * @param in The data input stream connected to the server.
+    * @param logFileWriter The file writer used to log test information.
+    * @param sampleSize The number of samples to be collected for each test.
+    * @param xorKey the xor key used for encrypting and decrypting messages.
+    * @return The xor key for future use.
+    */
    public static long measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
