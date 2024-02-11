@@ -55,10 +55,10 @@ public class PerformanceClient {
 
       String logFilePath = "log.txt";
       FileWriter logFileWriter = createLogFileWriter(logFilePath);
-      long xorKey = generateXorKey(out, in);
+      XorKey xorKey = generateXorKey(out, in);
       int sampleSize = 30;
-      xorKey = measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
-      xorKey = measureThroughputForTCPTests(out, in, logFileWriter, sampleSize, xorKey);
+      measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
+      measureThroughputForTCPTests(out, in, logFileWriter, xorKey, sampleSize);
       closeResources(socket, out, in, logFileWriter);
    }
 
@@ -69,7 +69,7 @@ public class PerformanceClient {
     * @param in The data input stream of the server that the client is connected to.
     * @return The generated xorKey.
     */
-   public static long generateXorKey(DataOutputStream out, DataInputStream in) {
+   public static XorKey generateXorKey(DataOutputStream out, DataInputStream in) {
       Random random = new Random();
       try {
          long seed = random.nextLong();
@@ -94,7 +94,8 @@ public class PerformanceClient {
          e.printStackTrace();
          System.exit(1);
       }
-      return random.nextLong();
+      XorKey xorKey = new XorKey(random.nextLong());
+      return xorKey;
    }
 
    /**
@@ -106,17 +107,16 @@ public class PerformanceClient {
     * @param sampleSize The sample size to be used for each test.
     * @return
     */
-   public static long measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       int message1Size = 8;
       log("RTT to send " + message1Size + " Bytes:", logFileWriter);
-      xorKey = measureRTTWithTCP(message1Size, logFileWriter, out, in, xorKey, sampleSize);
+      measureRTTWithTCP(message1Size, logFileWriter, out, in, xorKey, sampleSize);
       int message2Size = 64;
       log("RTT to send " + message2Size + " Bytes:", logFileWriter);
-      xorKey = measureRTTWithTCP(message2Size, logFileWriter, out, in, xorKey, sampleSize);
+      measureRTTWithTCP(message2Size, logFileWriter, out, in, xorKey, sampleSize);
       int message3Size = 512;
       log("RTT to send " + message3Size + " Bytes:", logFileWriter);
-      xorKey = measureRTTWithTCP(message3Size, logFileWriter, out, in, xorKey, sampleSize);
-      return xorKey;
+      measureRTTWithTCP(message3Size, logFileWriter, out, in, xorKey, sampleSize);
    }
 
    /**
@@ -131,11 +131,11 @@ public class PerformanceClient {
     * @param sampleSize Specifies the amount of samples to be collected before the method is exited.
     * @return The xor key for future use.
     */
-   public static long measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       for (int sample = 1; sample <= sampleSize; sample++) {
          long[] message = generateData(messageSize);
          // encode message
-         xorWithKey(message, xorKey);
+         xorKey.xorWithKey(message);
          try {
             ByteBuffer byteBuffer = ByteBuffer.allocate(message.length * Long.BYTES);
             byteBuffer.asLongBuffer().put(message);
@@ -143,48 +143,23 @@ public class PerformanceClient {
             out.write(byteBuffer.array());
             out.flush();
             // decode original message
-            xorWithKey(message, xorKey);
+            xorKey.xorWithKey(message);
             long[] response = new long[message.length];
             for (int i = 0; i < message.length; i++) {
                response[i] = in.readLong();
             }
-            // advance key
-            xorKey = xorShift(xorKey);
             // decode received message
-            xorWithKey(response, xorKey);
+            xorKey.xorWithKey(response);
             System.out.println(validateResponse(message, response));
             long timeElapsed = System.nanoTime() - start;
             log("" + timeElapsed, logFileWriter);
-            // advance key for next message
-            xorKey = xorShift(xorKey);
          } catch (IOException e) {
             System.err.println("I/O error during measurement of RTT with TCP");
             e.printStackTrace();
             System.exit(1);
          }
       }
-      return xorKey;
-   }
-
-   // Updates the rng of the key for each step
-   public static long xorShift(long key) {
-      key ^= key << 13;
-      key ^= key >>> 7;
-      key ^= key << 17;
-      return key;
-   }
-
-   public static void xorWithKey(long[] message, long xorKey) {
-      int messageLength = message.length;
-      xorWithKeyAndBounds(message, xorKey, 0, messageLength);
-   }
-
-   // Exclusive end
-   public static void xorWithKeyAndBounds(long[] data, long xorKey, int start, int end) {
-      for (int i = start; i < end; i++) {
-         data[i] ^= xorKey;
-      }
-   }
+   } 
 
    /**
     * Checks to see if two messages contain the same information.
@@ -278,7 +253,7 @@ public class PerformanceClient {
     * @param xorKey The xor key to be used for encrypting and decrypting messages.
     * @return The xor key for future use.
     */
-   public static long measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
+   public static void measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
       int numLongsInMessage = messageSize / Long.BYTES;
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
       int dataSize = numMessages * messageSize;
@@ -292,7 +267,7 @@ public class PerformanceClient {
                int startIndex = (messageNum - 1) * numLongsInMessage;
                int endIndex = messageNum * numLongsInMessage;
                // encode the message
-               xorWithKeyAndBounds(data, xorKey, startIndex, endIndex);
+               xorKey.xorWithKeyAndBounds(data, startIndex, endIndex);
                byteBuffer.rewind();
                byteBuffer.asLongBuffer().put(data, startIndex, numLongsInMessage);
                byteBuffer.rewind();
@@ -300,8 +275,6 @@ public class PerformanceClient {
                byteBuffer.get(encodedMessage);
                out.write(encodedMessage);
                out.flush();
-               // advance key
-               xorKey = xorShift(xorKey);
                long status = in.readLong();
                if (status != statusOkay) System.out.println("There was an issue with the ack.");
             }
@@ -317,7 +290,6 @@ public class PerformanceClient {
             System.exit(1);
          }
       }
-      return xorKey;
    }
 
    /**
@@ -329,18 +301,17 @@ public class PerformanceClient {
     * @param xorKey the xor key used for encrypting and decrypting messages.
     * @return The xor key for future use.
     */
-   public static long measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, int sampleSize, long xorKey) {
+   public static void measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
-      xorKey = measureThroughputForTCP(numMessagesForTest1, messageSizeForTest1, out, in, logFileWriter, sampleSize, xorKey);
+      measureThroughputForTCP(numMessagesForTest1, messageSizeForTest1, out, in, logFileWriter, xorKey, sampleSize);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
-      xorKey = measureThroughputForTCP(numMessagesForTest2, messageSizeForTest2, out, in, logFileWriter, sampleSize, xorKey);
+      measureThroughputForTCP(numMessagesForTest2, messageSizeForTest2, out, in, logFileWriter, xorKey, sampleSize);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
-      xorKey = measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, sampleSize, xorKey);
-      return xorKey;
+      measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, xorKey, sampleSize);
    }
 }
