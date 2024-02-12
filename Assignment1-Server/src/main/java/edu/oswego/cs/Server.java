@@ -39,10 +39,10 @@ public class Server {
          System.exit(1);
       }
 
-      long xorKey = generateXorKey(out, in);
+      XorKey xorKey = generateXorKey(out, in);
       int sampleSize = 30;
-      xorKey = handleRTTWithTCPMessages(out, in, xorKey, sampleSize);
-      xorKey = handleThroughputForTCPMessageTests(out, in, xorKey, sampleSize);
+      handleRTTWithTCPMessages(out, in, xorKey, sampleSize);
+      handleThroughputForTCPMessageTests(out, in, xorKey, sampleSize);
       closeResources(serverSocket, client, out, in);
    }
 
@@ -59,7 +59,7 @@ public class Server {
       }
    }
 
-   public static long generateXorKey(DataOutputStream out, DataInputStream in) {
+   public static XorKey generateXorKey(DataOutputStream out, DataInputStream in) {
       Random random = new Random();
       try {
          long seed = in.readLong();
@@ -77,7 +77,7 @@ public class Server {
          e.printStackTrace();
          System.exit(1);
       }
-      return random.nextLong();
+      return new XorKey(random.nextLong());
    }
 
    // Updates the rng of the key for each step
@@ -95,17 +95,16 @@ public class Server {
       }
    }
 
-   public static long handleRTTWithTCPMessages(DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void handleRTTWithTCPMessages(DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       int message1Size = 8;
-      xorKey = handleRTTWithTCPMessage(message1Size, out, in, xorKey, sampleSize);
+      handleRTTWithTCPMessage(message1Size, out, in, xorKey, sampleSize);
       int message2Size = 64;
-      xorKey = handleRTTWithTCPMessage(message2Size, out, in, xorKey, sampleSize);
+      handleRTTWithTCPMessage(message2Size, out, in, xorKey, sampleSize);
       int message3Size = 512;
-      xorKey = handleRTTWithTCPMessage(message3Size, out, in, xorKey, sampleSize);
-      return xorKey;
+      handleRTTWithTCPMessage(message3Size, out, in, xorKey, sampleSize);
    }
 
-   public static long handleRTTWithTCPMessage(int messageSize, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void handleRTTWithTCPMessage(int messageSize, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       long[] expectedMessage = generateMessage(messageSize);
       for (int sampleNum = 1; sampleNum <= sampleSize; sampleNum++) {
          try {
@@ -113,22 +112,20 @@ public class Server {
             for (int i = 0; i < expectedMessage.length; i++) {
                message[i] = in.readLong();
             }
-            xorWithKey(message, xorKey);
+            // decode message
+            xorKey.xorWithKey(message);
             System.out.println(validateMessage(message, expectedMessage));
-            xorKey = xorShift(xorKey);
-            xorWithKey(message, xorKey);
+            // encode message
+            xorKey.xorWithKey(message);
             ByteBuffer byteBuffer = ByteBuffer.allocate(expectedMessage.length * Long.BYTES);
             byteBuffer.asLongBuffer().put(message);
             out.write(byteBuffer.array());
-            // Prime the key for next usage
-            xorKey = xorShift(xorKey);
          } catch (IOException e) {
             System.err.println("There was an I/O exception thrown during a RTT tcp message");
             e.printStackTrace();
             System.exit(1);
          }
       }
-      return xorKey;
    }
 
    public static boolean validateMessage(long[] message, long[] expectedMessage) {
@@ -159,7 +156,7 @@ public class Server {
       return message;
    }
 
-   public static long handleThroughputForTCPMessages(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void handleThroughputForTCPMessages(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       long okayStatusCode = 200;
       int numLongs = messageSize / Long.BYTES;
       for (int sampleNum = 1; sampleNum <= sampleSize; sampleNum++) {
@@ -169,11 +166,10 @@ public class Server {
                for (int i = 0; i < numLongs; i++) {
                   message[i] = in.readLong();
                }
-               xorWithKey(message, xorKey);
+               // decode message
+               xorKey.xorWithKey(message);
                int startIndex = (messageNum - 1) * numLongs;
                System.out.println(validateMessageWithGeneratedTriangularNumbers(message, startIndex));
-               // advance key
-               xorKey = xorShift(xorKey);
                // send acknowledgment
                out.writeLong(okayStatusCode);
                out.flush();
@@ -184,21 +180,19 @@ public class Server {
             System.exit(1);
          }
       }
-      return xorKey;
    }
 
-   public static long handleThroughputForTCPMessageTests(DataOutputStream out, DataInputStream in, long xorKey, int sampleSize) {
+   public static void handleThroughputForTCPMessageTests(DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
-      xorKey = handleThroughputForTCPMessages(numMessagesForTest1, messageSizeForTest1, out, in, xorKey, sampleSize);
+      handleThroughputForTCPMessages(numMessagesForTest1, messageSizeForTest1, out, in, xorKey, sampleSize);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
-      xorKey = handleThroughputForTCPMessages(numMessagesForTest2, messageSizeForTest2, out, in, xorKey, sampleSize);
+      handleThroughputForTCPMessages(numMessagesForTest2, messageSizeForTest2, out, in, xorKey, sampleSize);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
-      xorKey = handleThroughputForTCPMessages(numMessagesForTest3, messageSizeForTest3, out, in, xorKey, sampleSize);
-      return xorKey;
+      handleThroughputForTCPMessages(numMessagesForTest3, messageSizeForTest3, out, in, xorKey, sampleSize);
    }
 }
