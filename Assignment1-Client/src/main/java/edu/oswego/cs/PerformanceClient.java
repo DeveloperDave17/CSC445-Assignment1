@@ -132,6 +132,7 @@ public class PerformanceClient {
     * @return The xor key for future use.
     */
    public static void measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
+      long[] expectedMessage = generateData(messageSize);
       for (int sample = 1; sample <= sampleSize; sample++) {
          long[] message = generateData(messageSize);
          // encode message
@@ -142,15 +143,13 @@ public class PerformanceClient {
             long start = System.nanoTime();
             out.write(byteBuffer.array());
             out.flush();
-            // decode original message
-            xorKey.xorWithKey(message);
             long[] response = new long[message.length];
             for (int i = 0; i < message.length; i++) {
                response[i] = in.readLong();
             }
             // decode received message
             xorKey.xorWithKey(response);
-            System.out.println(validateResponse(message, response));
+            System.out.println(validateResponse(expectedMessage, response));
             long timeElapsed = System.nanoTime() - start;
             log("" + timeElapsed, logFileWriter);
          } catch (IOException e) {
