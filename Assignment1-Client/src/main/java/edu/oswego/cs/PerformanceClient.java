@@ -347,24 +347,24 @@ public class PerformanceClient {
       log("RTT with UDP of size " + messageSize + " Bytes", logFileWriter);
       for (int sample = 1; sample <= sampleSize; sample++) {
          try {
-            long[] message = generateData(sampleSize);
+            long[] message = generateData(messageSize);
             // encode message
             xorKey.xorWithKey(message);
             byteBuffer.asLongBuffer().put(message);
-            byteBuffer.flip();
+            byteBuffer.rewind();
             long startTime = System.nanoTime();
             datagramChannel.send(byteBuffer, address);
-            byteBuffer.flip();
-            datagramChannel.read(byteBuffer);
-            byteBuffer.flip();
+            byteBuffer.rewind();
+            datagramChannel.receive(byteBuffer);
+            byteBuffer.rewind();
             long[] receivedMessage = new long[message.length];
             byteBuffer.asLongBuffer().get(receivedMessage);
             xorKey.xorWithKey(receivedMessage);
             validateResponse(expectedMessage, receivedMessage);
             long totalTime = System.nanoTime() - startTime;
-            log(String.format("%.4f", totalTime), logFileWriter);
+            log(String.format("%d", totalTime), logFileWriter);
             // reset bytebuffer
-            byteBuffer.flip();
+            byteBuffer.rewind();
          } catch(IOException e) {
             System.err.println("There was an I/O Exception thrown while measuring RTT with UDP.");
             e.printStackTrace();
