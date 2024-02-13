@@ -227,19 +227,19 @@ public class Server {
          try {
             long[] receivedMessage = new long[expectedMessage.length];
             SocketAddress clientAddr = datagramChannel.receive(byteBuffer);
-            byteBuffer.flip();
+            byteBuffer.rewind();
             byteBuffer.asLongBuffer().get(receivedMessage);
-            byteBuffer.flip();
+            byteBuffer.rewind();
             // decode
             xorKey.xorWithKey(receivedMessage);
             System.out.println(validateMessage(receivedMessage, expectedMessage));
             // encode message
             xorKey.xorWithKey(receivedMessage);
             byteBuffer.asLongBuffer().put(receivedMessage);
-            byteBuffer.flip();
+            byteBuffer.rewind();
             datagramChannel.send(byteBuffer, clientAddr);
             // Setup bytebuffer for next message
-            byteBuffer.flip();
+            byteBuffer.rewind();
          } catch (IOException e) {
             System.err.println("There was an I/O Exception thrown when handling RTT with UDP messages.");
             e.printStackTrace();
