@@ -8,9 +8,14 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -59,7 +64,29 @@ public class PerformanceClient {
       int sampleSize = 30;
       measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
       measureThroughputForTCPTests(out, in, logFileWriter, xorKey, sampleSize);
-      closeResources(socket, out, in, logFileWriter);
+      closeTCPIOs(socket, out, in);
+
+      DatagramChannel datagramChannel = null;
+      InetSocketAddress address = new InetSocketAddress(host, portNumber);
+      try {
+        datagramChannel = DatagramChannel.open();
+        datagramChannel.bind(null);
+      } catch (IOException e) {
+         System.err.println("There was an I/O Exception thrown when opening the DatagramChannel.");
+         e.printStackTrace();
+         System.exit(1);
+      }
+
+      measureRTTWithUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize);
+
+      try {
+         datagramChannel.close();
+         logFileWriter.close();
+      } catch (IOException e) {
+         System.err.println("There was an I/O Exception thrown when resources after UDP tests");
+         e.printStackTrace();
+         System.exit(1);
+      }
    }
 
    /**
@@ -209,9 +236,8 @@ public class PerformanceClient {
       return logFileWriter;
    }
    
-   public static void closeResources(Socket socket, DataOutputStream out, DataInputStream in, FileWriter logFileWriter) {
+   public static void closeTCPIOs(Socket socket, DataOutputStream out, DataInputStream in) {
       try {
-         logFileWriter.close();
          in.close();
          out.close();
          socket.close();
@@ -312,5 +338,49 @@ public class PerformanceClient {
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
       measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, xorKey, sampleSize);
+   }
+
+   public static void measureRTTWithUDP(int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+      DatagramSocket datagramSocket = datagramChannel.socket();
+      long[] expectedMessage = generateData(messageSize);
+      ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
+      log("RTT with UDP of size " + messageSize + " Bytes", logFileWriter);
+      for (int sample = 1; sample <= sampleSize; sample++) {
+         try {
+            long[] message = generateData(sampleSize);
+            // encode message
+            xorKey.xorWithKey(message);
+            byteBuffer.asLongBuffer().put(message);
+            byteBuffer.flip();
+            long startTime = System.nanoTime();
+            datagramChannel.send(byteBuffer, address);
+            byteBuffer.flip();
+            datagramChannel.read(byteBuffer);
+            byteBuffer.flip();
+            long[] receivedMessage = new long[message.length];
+            byteBuffer.asLongBuffer().get(receivedMessage);
+            xorKey.xorWithKey(receivedMessage);
+            validateResponse(expectedMessage, receivedMessage);
+            long totalTime = System.nanoTime() - startTime;
+            log(String.format("%.4f", totalTime), logFileWriter);
+            // reset bytebuffer
+            byteBuffer.flip();
+         } catch(IOException e) {
+            System.err.println("There was an I/O Exception thrown while measuring RTT with UDP.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+   }
+
+   public static void measureRTTWithUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+      int messageSizeForTest1 = 8;
+      measureRTTWithUDP(messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+
+      int messageSizeForTest2 = 64;
+      measureRTTWithUDP(messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+
+      int messageSizeForTest3 = 512;
+      measureRTTWithUDP(messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize);
    }
 }
