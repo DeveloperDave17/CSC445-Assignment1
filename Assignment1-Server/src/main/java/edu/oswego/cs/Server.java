@@ -1,8 +1,11 @@
 package edu.oswego.cs;
 
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
@@ -43,10 +46,31 @@ public class Server {
       int sampleSize = 30;
       handleRTTWithTCPMessages(out, in, xorKey, sampleSize);
       handleThroughputForTCPMessageTests(out, in, xorKey, sampleSize);
-      closeResources(serverSocket, client, out, in);
+      closeTCPResources(serverSocket, client, out, in);
+
+      DatagramChannel datagramChannel = null;
+      try {
+         datagramChannel = DatagramChannel.open();
+         InetSocketAddress addr = new InetSocketAddress(portNumber);
+         datagramChannel.bind(addr);
+      } catch (IOException e) {
+         System.err.println("There was an I/O Exception thrown when trying to open a datagram channel.");
+         e.printStackTrace();
+         System.exit(1);
+      }
+
+      handleRTTWithUDPMessages(datagramChannel, xorKey, sampleSize);
+
+      try {
+         datagramChannel.close();
+      } catch (IOException e) {
+         System.err.println("There was an I/O Exception thrown when trying to close the datagram channel");
+         e.printStackTrace();
+         System.exit(1);
+      }
    }
 
-   public static void closeResources(ServerSocket serverSocket, Socket client, DataOutputStream out, DataInputStream in) {
+   public static void closeTCPResources(ServerSocket serverSocket, Socket client, DataOutputStream out, DataInputStream in) {
       try {   
          out.close();
          in.close();
@@ -194,5 +218,44 @@ public class Server {
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
       handleThroughputForTCPMessages(numMessagesForTest3, messageSizeForTest3, out, in, xorKey, sampleSize);
+   }
+
+   public static void handleRTTWithUDPMessage(int messageSize, DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
+      long[] expectedMessage = generateMessage(messageSize);
+      ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
+      for (int sample = 1; sample <= sampleSize; sample++) {
+         try {
+            long[] receivedMessage = new long[expectedMessage.length];
+            SocketAddress clientAddr = datagramChannel.receive(byteBuffer);
+            byteBuffer.flip();
+            byteBuffer.asLongBuffer().get(receivedMessage);
+            byteBuffer.flip();
+            // decode
+            xorKey.xorWithKey(receivedMessage);
+            System.out.println(validateMessage(receivedMessage, expectedMessage));
+            // encode message
+            xorKey.xorWithKey(receivedMessage);
+            byteBuffer.asLongBuffer().put(receivedMessage);
+            byteBuffer.flip();
+            datagramChannel.send(byteBuffer, clientAddr);
+            // Setup bytebuffer for next message
+            byteBuffer.flip();
+         } catch (IOException e) {
+            System.err.println("There was an I/O Exception thrown when handling RTT with UDP messages.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+   }
+
+   public static void handleRTTWithUDPMessages(DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
+      int messageSizeForTest1 = 8;
+      handleRTTWithUDPMessage(messageSizeForTest1, datagramChannel, xorKey, sampleSize);
+
+      int messageSizeForTest2 = 64;
+      handleRTTWithUDPMessage(messageSizeForTest2, datagramChannel, xorKey, sampleSize);
+
+      int messageSizeForTest3 = 512;
+      handleRTTWithUDPMessage(messageSizeForTest3, datagramChannel, xorKey, sampleSize);
    }
 }
