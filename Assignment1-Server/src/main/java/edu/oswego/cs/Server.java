@@ -60,6 +60,7 @@ public class Server {
       }
 
       handleRTTWithUDPMessages(datagramChannel, xorKey, sampleSize);
+      handleThroughputForUDPTests(datagramChannel, xorKey, sampleSize);
 
       try {
          datagramChannel.close();
@@ -257,5 +258,51 @@ public class Server {
 
       int messageSizeForTest3 = 512;
       handleRTTWithUDPMessage(messageSizeForTest3, datagramChannel, xorKey, sampleSize);
+   }
+
+   public static void handleThroughputUDPMessages(int numMessages, int messageSize, DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
+      long okayStatusCode = 200;
+      int numLongs = messageSize / Long.BYTES;
+      ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
+      for (int sampleNum = 1; sampleNum <= sampleSize; sampleNum++) {
+         try {
+            for (int messageNum = 1; messageNum <= numMessages; messageNum++) {
+               long[] message = new long[numLongs];
+               SocketAddress clientAddr = datagramChannel.receive(byteBuffer);
+               byteBuffer.rewind();
+               byteBuffer.asLongBuffer().put(message);
+               // decode message
+               xorKey.xorWithKey(message);
+               int startIndex = (messageNum - 1) * numLongs;
+               System.out.println(validateMessageWithGeneratedTriangularNumbers(message, startIndex));
+               // send acknowledgment
+               byteBuffer.rewind();
+               byteBuffer.putLong(okayStatusCode);
+               byteBuffer.rewind();
+               byteBuffer.limit(Long.BYTES - 1);
+               datagramChannel.send(byteBuffer, clientAddr);
+               // clear limit from Bytebuffer and reset position
+               byteBuffer.clear();
+            }
+         } catch (IOException e) {
+            System.err.println("There was an I/O exception thrown when handling throughput udp messages.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+   }
+
+   public static void handleThroughputForUDPTests(DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
+      int numMessagesForTest1 = 16384;
+      int messageSizeForTest1 = 64;
+      handleThroughputUDPMessages(numMessagesForTest1, messageSizeForTest1, datagramChannel, xorKey, sampleSize);
+
+      int numMessagesForTest2 = 4096;
+      int messageSizeForTest2 = 256;
+      handleThroughputUDPMessages(numMessagesForTest2, messageSizeForTest2, datagramChannel, xorKey, sampleSize);
+
+      int numMessagesForTest3 = 1024;
+      int messageSizeForTest3 = 1024;
+      handleThroughputUDPMessages(numMessagesForTest3, messageSizeForTest3, datagramChannel, xorKey, sampleSize);
    }
 }
