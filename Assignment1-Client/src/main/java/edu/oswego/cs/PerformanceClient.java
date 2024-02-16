@@ -78,6 +78,7 @@ public class PerformanceClient {
       }
 
       measureRTTWithUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureThroughputForUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize);
 
       try {
          datagramChannel.close();
@@ -304,10 +305,7 @@ public class PerformanceClient {
                if (status != statusOkay) System.out.println("There was an issue with the ack.");
             }
             long nanoTime = System.nanoTime() - startTime;
-            double nanoSecondsInSeconds = Math.pow(10, 6);
-            double seconds = nanoTime / nanoSecondsInSeconds;
-            double throughputBytesPerSecond = dataSize / seconds; 
-            double throughputBitsPerSecond = throughputBytesPerSecond * Byte.SIZE;
+            double throughputBitsPerSecond = calculateThroughput(nanoTime, dataSize);
             log(String.format("%.4f", throughputBitsPerSecond), logFileWriter);
          } catch (IOException e) {
             System.err.println("There was an I/O exception thrown when trying to send a message during throughput measurement.");
@@ -341,7 +339,6 @@ public class PerformanceClient {
    }
 
    public static void measureRTTWithUDP(int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
-      DatagramSocket datagramSocket = datagramChannel.socket();
       long[] expectedMessage = generateData(messageSize);
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
       log("RTT with UDP of size " + messageSize + " Bytes", logFileWriter);
@@ -382,5 +379,64 @@ public class PerformanceClient {
 
       int messageSizeForTest3 = 512;
       measureRTTWithUDP(messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+   }
+
+   public static void measureThroughputForUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+      int numMessagesForTest1 = 16384;
+      int messageSizeForTest1 = 64;
+      measureThroughputForUDPMessage(numMessagesForTest1, messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+
+      int numMessagesForTest2 = 4096;
+      int messageSizeForTest2 = 256;
+      measureThroughputForUDPMessage(numMessagesForTest2, messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+
+      int numMessagesForTest3 = 1024;
+      int messageSizeForTest3 = 1024;
+      measureThroughputForUDPMessage(numMessagesForTest3, messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+   }
+
+   public static void measureThroughputForUDPMessage(int numMessages, int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+      int numLongsInMessage = messageSize / Long.BYTES;
+      ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
+      int dataSize = numMessages * messageSize;
+      long statusOkay = 200;
+      log("Throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
+      for (int sample = 1; sample <= sampleSize; sample++) {
+         try {
+            long[] data = generateData(dataSize);
+            long startTime = System.nanoTime();
+            for (int messageNum = 1; messageNum <= numMessages; messageNum++) {
+               int startIndex = (messageNum - 1) * numLongsInMessage;
+               int endIndex = messageNum * numLongsInMessage;
+               // encode the message
+               xorKey.xorWithKeyAndBounds(data, startIndex, endIndex);
+               byteBuffer.asLongBuffer().put(data, startIndex, numLongsInMessage);
+               byteBuffer.rewind();
+               datagramChannel.send(byteBuffer, address);
+               byteBuffer.rewind();
+               byteBuffer.limit(Long.BYTES - 1);
+               datagramChannel.receive(byteBuffer);
+               long status = byteBuffer.getLong();
+               if (status != statusOkay) System.out.println("There was an issue with the ack.");
+               // clears the limit and resets the position of the bytebuffer for the next sample.
+               byteBuffer.clear();
+            }
+            long nanoTime = System.nanoTime() - startTime;
+            double throughputBitsPerSecond = calculateThroughput(nanoTime, dataSize);
+            log(String.format("%.4f", throughputBitsPerSecond), logFileWriter);
+         } catch (IOException e) {
+            System.err.println("There was an I/O exception thrown when trying to send a message during UDP throughput measurement.");
+            e.printStackTrace();
+            System.exit(1);
+         }
+      }
+   }
+
+   public static double calculateThroughput(long nanoTime, int dataSize) {
+      double nanoSecondsInSeconds = Math.pow(10, 6);
+      double seconds = nanoTime / nanoSecondsInSeconds;
+      double throughputBytesPerSecond = dataSize / seconds; 
+      double throughputBitsPerSecond = throughputBytesPerSecond * Byte.SIZE;
+      return throughputBitsPerSecond;
    }
 }
