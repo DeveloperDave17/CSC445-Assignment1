@@ -27,6 +27,13 @@ public class Server {
          portNumber = 26910;
       }
 
+      int sampleSize;
+      if (args.length > 1) {
+         sampleSize = Integer.parseInt(args[1]);
+      } else {
+         sampleSize = 30;
+      }
+
       ServerSocket serverSocket = null;
       Socket client = null;
       DataOutputStream out = null;
@@ -43,7 +50,6 @@ public class Server {
       }
 
       XorKey xorKey = generateXorKey(out, in);
-      int sampleSize = 30;
       handleRTTWithTCPMessages(out, in, xorKey, sampleSize);
       handleThroughputForTCPMessageTests(out, in, xorKey, sampleSize);
       closeTCPResources(serverSocket, client, out, in);
@@ -122,10 +128,13 @@ public class Server {
 
    public static void handleRTTWithTCPMessages(DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       int message1Size = 8;
+      System.out.println("Handling RTT TCP message of size " + message1Size + "Bytes");
       handleRTTWithTCPMessage(message1Size, out, in, xorKey, sampleSize);
       int message2Size = 64;
+      System.out.println("Handling RTT TCP message of size " + message2Size + "Bytes");
       handleRTTWithTCPMessage(message2Size, out, in, xorKey, sampleSize);
       int message3Size = 512;
+      System.out.println("Handling RTT TCP message of size " + message3Size + "Bytes");
       handleRTTWithTCPMessage(message3Size, out, in, xorKey, sampleSize);
    }
 
@@ -139,7 +148,8 @@ public class Server {
             }
             // decode message
             xorKey.xorWithKey(message);
-            System.out.println(validateMessage(message, expectedMessage));
+            boolean validMessage = validateMessage(message, expectedMessage);
+            if (!validMessage) System.out.println(validMessage);
             // encode message
             xorKey.xorWithKey(message);
             ByteBuffer byteBuffer = ByteBuffer.allocate(expectedMessage.length * Long.BYTES);
@@ -194,7 +204,8 @@ public class Server {
                // decode message
                xorKey.xorWithKey(message);
                int startIndex = (messageNum - 1) * numLongs;
-               System.out.println(validateMessageWithGeneratedTriangularNumbers(message, startIndex));
+               boolean validMessage = validateMessageWithGeneratedTriangularNumbers(message, startIndex);
+               if (!validMessage) System.out.println(validMessage);
                // send acknowledgment
                out.writeLong(okayStatusCode);
                out.flush();
@@ -210,14 +221,17 @@ public class Server {
    public static void handleThroughputForTCPMessageTests(DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
+      System.out.println("Handling Throughput for TCP with " + numMessagesForTest1 + " messages of " + messageSizeForTest1 + " bytes.");
       handleThroughputForTCPMessages(numMessagesForTest1, messageSizeForTest1, out, in, xorKey, sampleSize);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
+      System.out.println("Handling Throughput for TCP with " + numMessagesForTest2 + " messages of " + messageSizeForTest2 + " bytes.");
       handleThroughputForTCPMessages(numMessagesForTest2, messageSizeForTest2, out, in, xorKey, sampleSize);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
+      System.out.println("Handling Throughput for TCP with " + numMessagesForTest3 + " messages of " + messageSizeForTest3 + " bytes.");
       handleThroughputForTCPMessages(numMessagesForTest3, messageSizeForTest3, out, in, xorKey, sampleSize);
    }
 
@@ -233,7 +247,8 @@ public class Server {
             byteBuffer.rewind();
             // decode
             xorKey.xorWithKey(receivedMessage);
-            System.out.println(validateMessage(receivedMessage, expectedMessage));
+            boolean validMessage = validateMessage(receivedMessage, expectedMessage);
+            if (!validMessage) System.out.println("validation error in RTT UDP.");
             // encode message
             xorKey.xorWithKey(receivedMessage);
             byteBuffer.asLongBuffer().put(receivedMessage);
@@ -251,12 +266,15 @@ public class Server {
 
    public static void handleRTTWithUDPMessages(DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
       int messageSizeForTest1 = 8;
+      System.out.println("Handling RTT UDP message of size " + messageSizeForTest1 + "Bytes");
       handleRTTWithUDPMessage(messageSizeForTest1, datagramChannel, xorKey, sampleSize);
 
       int messageSizeForTest2 = 64;
+      System.out.println("Handling RTT UDP message of size " + messageSizeForTest2 + "Bytes");
       handleRTTWithUDPMessage(messageSizeForTest2, datagramChannel, xorKey, sampleSize);
 
       int messageSizeForTest3 = 512;
+      System.out.println("Handling RTT UDP message of size " + messageSizeForTest3 + "Bytes");
       handleRTTWithUDPMessage(messageSizeForTest3, datagramChannel, xorKey, sampleSize);
    }
 
@@ -270,16 +288,17 @@ public class Server {
                long[] message = new long[numLongs];
                SocketAddress clientAddr = datagramChannel.receive(byteBuffer);
                byteBuffer.rewind();
-               byteBuffer.asLongBuffer().put(message);
+               byteBuffer.asLongBuffer().get(message);
                // decode message
                xorKey.xorWithKey(message);
                int startIndex = (messageNum - 1) * numLongs;
-               System.out.println(validateMessageWithGeneratedTriangularNumbers(message, startIndex));
+               boolean validMessage = validateMessageWithGeneratedTriangularNumbers(message, startIndex);
+               if (!validMessage) System.out.println("Non-valid message for UDP throughput measurement.");
                // send acknowledgment
                byteBuffer.rewind();
                byteBuffer.putLong(okayStatusCode);
                byteBuffer.rewind();
-               byteBuffer.limit(Long.BYTES - 1);
+               byteBuffer.limit(Long.BYTES);
                datagramChannel.send(byteBuffer, clientAddr);
                // clear limit from Bytebuffer and reset position
                byteBuffer.clear();
@@ -295,14 +314,17 @@ public class Server {
    public static void handleThroughputForUDPTests(DatagramChannel datagramChannel, XorKey xorKey, int sampleSize) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
+      System.out.println("Handling Throughput for UDP with " + numMessagesForTest1 + " messages of " + messageSizeForTest1 + " bytes.");
       handleThroughputUDPMessages(numMessagesForTest1, messageSizeForTest1, datagramChannel, xorKey, sampleSize);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
+      System.out.println("Handling Throughput for UDP with " + numMessagesForTest2 + " messages of " + messageSizeForTest2 + " bytes.");
       handleThroughputUDPMessages(numMessagesForTest2, messageSizeForTest2, datagramChannel, xorKey, sampleSize);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
+      System.out.println("Handling Throughput for UDP with " + numMessagesForTest3 + " messages of " + messageSizeForTest3 + " bytes.");
       handleThroughputUDPMessages(numMessagesForTest3, messageSizeForTest3, datagramChannel, xorKey, sampleSize);
    }
 }

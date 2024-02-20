@@ -17,6 +17,6 @@ application {
 
 tasks.withType<Jar> {
     manifest {
-        attributes["Main-Class"] = "edu.oswego.cs.HeatPropagationSimulation"
+        attributes["Main-Class"] = "edu.oswego.cs.PerformanceClient"
     }
 }

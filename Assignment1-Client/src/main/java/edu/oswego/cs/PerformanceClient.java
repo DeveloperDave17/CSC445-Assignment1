@@ -1,24 +1,18 @@
 package edu.oswego.cs;
 
-import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
 import java.io.IOException;
-import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.net.SocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
-import java.nio.charset.StandardCharsets;
 import java.util.Random;
-import java.util.concurrent.ThreadLocalRandom;
 
 public class PerformanceClient {
    
@@ -37,6 +31,13 @@ public class PerformanceClient {
       } else {
          // One of my assigned ports
          portNumber = 26910;
+      }
+
+      int sampleSize;
+      if (args.length > 2) {
+         sampleSize = Integer.parseInt(args[2]);
+      } else {
+         sampleSize = 30;
       }
 
       Socket socket = null;
@@ -61,9 +62,15 @@ public class PerformanceClient {
       String logFilePath = "log.txt";
       FileWriter logFileWriter = createLogFileWriter(logFilePath);
       XorKey xorKey = generateXorKey(out, in);
-      int sampleSize = 30;
-      measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize);
-      measureThroughputForTCPTests(out, in, logFileWriter, xorKey, sampleSize);
+      String tcpMessageTypeName = "TCP";
+      String rttTestName = "RTT";
+      BufferedWriter tcpRTTCSVWriter = setupCSVWriter(rttTestName, tcpMessageTypeName);
+      measureRTTWithTCPMessages(logFileWriter, out, in, xorKey, sampleSize, tcpRTTCSVWriter);
+      closeCSVWRITER(tcpRTTCSVWriter);
+      String throughputTestName = "Throughput";
+      BufferedWriter tcpThroughputWriter = setupCSVWriter(throughputTestName, tcpMessageTypeName);
+      measureThroughputForTCPTests(out, in, logFileWriter, xorKey, sampleSize, tcpThroughputWriter);
+      closeCSVWRITER(tcpThroughputWriter);
       closeTCPIOs(socket, out, in);
 
       DatagramChannel datagramChannel = null;
@@ -77,8 +84,13 @@ public class PerformanceClient {
          System.exit(1);
       }
 
-      measureRTTWithUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize);
-      measureThroughputForUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      String udpMessageTypeName = "UDP";
+      BufferedWriter udpRTTWriter = setupCSVWriter(rttTestName, udpMessageTypeName);
+      measureRTTWithUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize, udpRTTWriter);
+      closeCSVWRITER(udpRTTWriter);
+      BufferedWriter udpThroughputWriter = setupCSVWriter(throughputTestName, udpMessageTypeName);
+      measureThroughputForUDPTests(datagramChannel, address, logFileWriter, xorKey, sampleSize, udpThroughputWriter);
+      closeCSVWRITER(udpThroughputWriter);
 
       try {
          datagramChannel.close();
@@ -135,16 +147,16 @@ public class PerformanceClient {
     * @param sampleSize The sample size to be used for each test.
     * @return
     */
-   public static void measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
+   public static void measureRTTWithTCPMessages(FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int message1Size = 8;
-      log("RTT to send " + message1Size + " Bytes:", logFileWriter);
-      measureRTTWithTCP(message1Size, logFileWriter, out, in, xorKey, sampleSize);
+      log("Started RTT to send " + message1Size + " Bytes", logFileWriter);
+      measureRTTWithTCP(message1Size, logFileWriter, out, in, xorKey, sampleSize, csvWriter);
       int message2Size = 64;
-      log("RTT to send " + message2Size + " Bytes:", logFileWriter);
-      measureRTTWithTCP(message2Size, logFileWriter, out, in, xorKey, sampleSize);
+      log("Started RTT to send " + message2Size + " Bytes", logFileWriter);
+      measureRTTWithTCP(message2Size, logFileWriter, out, in, xorKey, sampleSize, csvWriter);
       int message3Size = 512;
-      log("RTT to send " + message3Size + " Bytes:", logFileWriter);
-      measureRTTWithTCP(message3Size, logFileWriter, out, in, xorKey, sampleSize);
+      log("Started RTT to send " + message3Size + " Bytes", logFileWriter);
+      measureRTTWithTCP(message3Size, logFileWriter, out, in, xorKey, sampleSize, csvWriter);
    }
 
    /**
@@ -159,7 +171,7 @@ public class PerformanceClient {
     * @param sampleSize Specifies the amount of samples to be collected before the method is exited.
     * @return The xor key for future use.
     */
-   public static void measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize) {
+   public static void measureRTTWithTCP(int messageSize, FileWriter logFileWriter, DataOutputStream out, DataInputStream in, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       long[] expectedMessage = generateData(messageSize);
       for (int sample = 1; sample <= sampleSize; sample++) {
          long[] message = generateData(messageSize);
@@ -177,9 +189,9 @@ public class PerformanceClient {
             }
             // decode received message
             xorKey.xorWithKey(response);
-            System.out.println(validateResponse(expectedMessage, response));
+            boolean validated = validateResponse(expectedMessage, response);
             long timeElapsed = System.nanoTime() - start;
-            log("" + timeElapsed, logFileWriter);
+            csvWriter.write("" + sample + "," + timeElapsed + "," + validated + "\n");
          } catch (IOException e) {
             System.err.println("I/O error during measurement of RTT with TCP");
             e.printStackTrace();
@@ -279,13 +291,14 @@ public class PerformanceClient {
     * @param xorKey The xor key to be used for encrypting and decrypting messages.
     * @return The xor key for future use.
     */
-   public static void measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureThroughputForTCP(int numMessages, int messageSize, DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int numLongsInMessage = messageSize / Long.BYTES;
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
       int dataSize = numMessages * messageSize;
       long statusOkay = 200;
-      log("Throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
+      log("Started throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
       for (int sample = 1; sample <= sampleSize; sample++) {
+         boolean acked = false;
          try {
             long[] data = generateData(dataSize);
             long startTime = System.nanoTime();
@@ -302,11 +315,12 @@ public class PerformanceClient {
                out.write(encodedMessage);
                out.flush();
                long status = in.readLong();
-               if (status != statusOkay) System.out.println("There was an issue with the ack.");
+               acked = status == statusOkay;
+               if (!acked) System.out.println("There was an issue with the ack.");
             }
             long nanoTime = System.nanoTime() - startTime;
             double throughputBitsPerSecond = calculateThroughput(nanoTime, dataSize);
-            log(String.format("%.4f", throughputBitsPerSecond), logFileWriter);
+            csvWriter.write("" + sample + "," + throughputBitsPerSecond + "," + acked + "\n");
          } catch (IOException e) {
             System.err.println("There was an I/O exception thrown when trying to send a message during throughput measurement.");
             e.printStackTrace();
@@ -324,24 +338,24 @@ public class PerformanceClient {
     * @param xorKey the xor key used for encrypting and decrypting messages.
     * @return The xor key for future use.
     */
-   public static void measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureThroughputForTCPTests(DataOutputStream out, DataInputStream in, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
-      measureThroughputForTCP(numMessagesForTest1, messageSizeForTest1, out, in, logFileWriter, xorKey, sampleSize);
+      measureThroughputForTCP(numMessagesForTest1, messageSizeForTest1, out, in, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
-      measureThroughputForTCP(numMessagesForTest2, messageSizeForTest2, out, in, logFileWriter, xorKey, sampleSize);
+      measureThroughputForTCP(numMessagesForTest2, messageSizeForTest2, out, in, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
-      measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, xorKey, sampleSize);
+      measureThroughputForTCP(numMessagesForTest3, messageSizeForTest3, out, in, logFileWriter, xorKey, sampleSize, csvWriter);
    }
 
-   public static void measureRTTWithUDP(int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureRTTWithUDP(int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       long[] expectedMessage = generateData(messageSize);
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
-      log("RTT with UDP of size " + messageSize + " Bytes", logFileWriter);
+      log("Started RTT with UDP of size " + messageSize + " Bytes", logFileWriter);
       for (int sample = 1; sample <= sampleSize; sample++) {
          try {
             long[] message = generateData(messageSize);
@@ -356,10 +370,11 @@ public class PerformanceClient {
             byteBuffer.rewind();
             long[] receivedMessage = new long[message.length];
             byteBuffer.asLongBuffer().get(receivedMessage);
+            // decode
             xorKey.xorWithKey(receivedMessage);
-            validateResponse(expectedMessage, receivedMessage);
+            boolean validResponse = validateResponse(expectedMessage, receivedMessage);
             long totalTime = System.nanoTime() - startTime;
-            log(String.format("%d", totalTime), logFileWriter);
+            csvWriter.write("" + sample + "," + totalTime + "," + validResponse + "\n");
             // reset bytebuffer
             byteBuffer.rewind();
          } catch(IOException e) {
@@ -370,38 +385,39 @@ public class PerformanceClient {
       }
    }
 
-   public static void measureRTTWithUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureRTTWithUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int messageSizeForTest1 = 8;
-      measureRTTWithUDP(messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureRTTWithUDP(messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int messageSizeForTest2 = 64;
-      measureRTTWithUDP(messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureRTTWithUDP(messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int messageSizeForTest3 = 512;
-      measureRTTWithUDP(messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureRTTWithUDP(messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
    }
 
-   public static void measureThroughputForUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureThroughputForUDPTests(DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int numMessagesForTest1 = 16384;
       int messageSizeForTest1 = 64;
-      measureThroughputForUDPMessage(numMessagesForTest1, messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureThroughputForUDPMessage(numMessagesForTest1, messageSizeForTest1, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int numMessagesForTest2 = 4096;
       int messageSizeForTest2 = 256;
-      measureThroughputForUDPMessage(numMessagesForTest2, messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureThroughputForUDPMessage(numMessagesForTest2, messageSizeForTest2, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
 
       int numMessagesForTest3 = 1024;
       int messageSizeForTest3 = 1024;
-      measureThroughputForUDPMessage(numMessagesForTest3, messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize);
+      measureThroughputForUDPMessage(numMessagesForTest3, messageSizeForTest3, datagramChannel, address, logFileWriter, xorKey, sampleSize, csvWriter);
    }
 
-   public static void measureThroughputForUDPMessage(int numMessages, int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize) {
+   public static void measureThroughputForUDPMessage(int numMessages, int messageSize, DatagramChannel datagramChannel, InetSocketAddress address, FileWriter logFileWriter, XorKey xorKey, int sampleSize, BufferedWriter csvWriter) {
       int numLongsInMessage = messageSize / Long.BYTES;
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
       int dataSize = numMessages * messageSize;
       long statusOkay = 200;
-      log("Throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
+      log("Started throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
       for (int sample = 1; sample <= sampleSize; sample++) {
+         boolean acked = false;
          try {
             long[] data = generateData(dataSize);
             long startTime = System.nanoTime();
@@ -414,16 +430,18 @@ public class PerformanceClient {
                byteBuffer.rewind();
                datagramChannel.send(byteBuffer, address);
                byteBuffer.rewind();
-               byteBuffer.limit(Long.BYTES - 1);
+               byteBuffer.limit(Long.BYTES);
                datagramChannel.receive(byteBuffer);
+               byteBuffer.rewind();
                long status = byteBuffer.getLong();
-               if (status != statusOkay) System.out.println("There was an issue with the ack.");
+               acked = status == statusOkay;
+               if (!acked) log("There was an issue with the ack.", logFileWriter);
                // clears the limit and resets the position of the bytebuffer for the next sample.
                byteBuffer.clear();
             }
             long nanoTime = System.nanoTime() - startTime;
             double throughputBitsPerSecond = calculateThroughput(nanoTime, dataSize);
-            log(String.format("%.4f", throughputBitsPerSecond), logFileWriter);
+            csvWriter.write("" + sample + "," + throughputBitsPerSecond + "," + acked + "\n");
          } catch (IOException e) {
             System.err.println("There was an I/O exception thrown when trying to send a message during UDP throughput measurement.");
             e.printStackTrace();
@@ -433,10 +451,34 @@ public class PerformanceClient {
    }
 
    public static double calculateThroughput(long nanoTime, int dataSize) {
-      double nanoSecondsInSeconds = Math.pow(10, 6);
+      double nanoSecondsInSeconds = Math.pow(10, 9);
       double seconds = nanoTime / nanoSecondsInSeconds;
       double throughputBytesPerSecond = dataSize / seconds; 
       double throughputBitsPerSecond = throughputBytesPerSecond * Byte.SIZE;
       return throughputBitsPerSecond;
+   }
+
+   public static BufferedWriter setupCSVWriter(String test, String messageType) {
+      BufferedWriter bufferedWriter = null;
+      String csvFileName = messageType + test + ".csv";
+      try {
+         bufferedWriter = new BufferedWriter(new PrintWriter(csvFileName));
+         bufferedWriter.write("Sample Number," + messageType + " " + test + ",valid\n");
+      } catch (IOException e) {
+         System.err.println("An I/O exception was thrown while setting up the csv " + csvFileName);
+         e.printStackTrace();
+         System.exit(1);
+      }
+      return bufferedWriter;
+   }
+
+   public static void closeCSVWRITER(BufferedWriter bufferedWriter) {
+      try {
+         bufferedWriter.close();
+      } catch (IOException e) {
+         System.err.println("There was an I/O Exception thrown while closing a csv file.");
+         e.printStackTrace();
+         System.exit(1);
+      }
    }
 }
