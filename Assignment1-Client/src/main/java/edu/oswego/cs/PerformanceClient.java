@@ -296,6 +296,7 @@ public class PerformanceClient {
       ByteBuffer byteBuffer = ByteBuffer.allocate(messageSize);
       int dataSize = numMessages * messageSize;
       long statusOkay = 200;
+      byte[] encodedMessage = new byte[messageSize];
       log("Started throughput measurements for " + numMessages + " messages of size " + messageSize + " Bytes", logFileWriter);
       for (int sample = 1; sample <= sampleSize; sample++) {
          boolean acked = false;
@@ -310,7 +311,6 @@ public class PerformanceClient {
                byteBuffer.rewind();
                byteBuffer.asLongBuffer().put(data, startIndex, numLongsInMessage);
                byteBuffer.rewind();
-               byte[] encodedMessage = new byte[messageSize];
                byteBuffer.get(encodedMessage);
                out.write(encodedMessage);
                out.flush();
